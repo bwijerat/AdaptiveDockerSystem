@@ -110,7 +110,8 @@ def store_stats(sql_cpu_avg, sql_mem_avg, web_worker_mem_avg, web_worker_cpu_avg
     prev_web_worker_mem_avg = web_worker_mem_avg
     prev_num_requests = num_requests
     prev_num_sql = num_sql
-    prev_num_web_workers = num_web_workers
+    prev_num_web_workers = num_web_workers
+
     
 def scale(service, replicas, manager):
     #scales the number of containers
@@ -306,8 +307,28 @@ def controller(input_pipe, output_pipe, number_of_processes):
     #Store the stats
     store_stats(sql_cpu_avg, sql_mem_avg, web_worker_mem_avg, web_worker_cpu_avg, num_web_workers, num_sql, num_requests, prev_sql_cpu_avg, prev_sql_mem_avg, prev_web_worker_mem_avg, prev_web_worker_cpu_avg, prev_num_web_workers, prev_num_sql, prev_num_requests)
     
+    #Use these lines whenever we update the regression
+    #TODO put this into a function
     target_mat = np.vstack([sql_cpu_history, web_worker_cpu_history, sql_mem_history, web_worker_mem_history]).T
     design_mat = np.vstack([sql_history, web_work_history, request_history]).T
     control_matrix = regregularized_lin_regression(design_mat, target_mat, 0.0001)
     estimator.update_B(control_matrix.T)
     
+<<<<<<< HEAD
+    
+    
+    close_flag = False
+    while not close_flag:
+        if input_pipe.poll():
+            message = input_pipe.recv()
+            if message == "close":
+                close_flag = True
+        
+        #do the experiment here
+    
+=======
+    #TODO We have generated an initial estimate
+    #Begin by starting up the rest of the load generators and then monitoring and adjust
+    
+    
+>>>>>>> 6f23a1a9f6633d63aa6e0a992556ac4a3de3aae7
