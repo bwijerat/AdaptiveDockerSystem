@@ -41,4 +41,7 @@ def load_process(node_list, write_connection, read_connection):
             #Insert a new user
             r = requests.get('{0}/dataop/InsertUsers?fName={1}&lName={2}'.format(node_list[node_number], randomString(random.randint(1, 10)), randomString(random.randint(1, 10))))
         requests_sent = requests_sent + 1
-            
+        #To prevent sending too many requests the process will sleep for a random number of miliseconds between 10 and 50
+        sleep_mili_interval = random.uniform(10.0, 50.0)
+        #time.sleep expects values in seconds. Divide by 1000 to maintain miliseconds
+        time.sleep(sleep_mili_interval/1000.0)
