@@ -147,7 +147,7 @@ def poll_pipes(pipe_list, number_to_poll):
 
 
 # def init_system(process_list, read_pipes, write_pipes, estimator, node_list, manager
-def controller(input_pipe, output_pipe, number_of_processes, node_list, manager):
+def controller(input_pipe, output_pipe, number_of_processes, node_list, manager, polling_interval, polls_per_update):
     close_flag = False
     # Node list
     #node_list = ["192.168.56.102:4000", "192.168.56.103:4000", "192.168.56.101:4000"]
@@ -255,7 +255,7 @@ def controller(input_pipe, output_pipe, number_of_processes, node_list, manager)
     # ********************************************* 2nd DIFF MEASUREMENT ***********************************************
 
     # Send poll request to the process we started
-    par_pipes[0].send["poll"]
+    par_pipes[0].send("poll")
     while not par_pipes[0].poll():
         pass
     # If the loop above has been broken then we can read the information from the pipe
@@ -292,7 +292,7 @@ def controller(input_pipe, output_pipe, number_of_processes, node_list, manager)
 
     # poll pipes [0] & [1]
     for i in range(0, 2):
-        par_pipes[i].send["poll"]
+        par_pipes[i].send("poll")
     pipes_ready = poll_pipes(par_pipes, 2)
     # reset number of requests
     num_requests = 0
@@ -327,9 +327,10 @@ def controller(input_pipe, output_pipe, number_of_processes, node_list, manager)
     scale(services["mysql"], num_sql, manager)
     # as before we sleep and will update
     time.sleep(5)
-
+    for service_name, service in services.items():
+        get_tasks(service, manager)
     for i in range(0, 2):
-        par_pipes[i].send["poll"]
+        par_pipes[i].send("poll")
     pipes_ready = poll_pipes(par_pipes, 2)
     # reset number of requests
     num_requests = 0
@@ -361,14 +362,73 @@ def controller(input_pipe, output_pipe, number_of_processes, node_list, manager)
     design_mat = np.vstack([sql_history, web_work_history, request_history]).T
     control_matrix = regularized_lin_regression(design_mat, target_mat, 0.0001)
     estimator.update_B(control_matrix.T)
-
+    
+    #Helper vars
+    polls_since_update = 0
+    processes_started = 2
     # TODO We have generated an initial estimate
     # Begin by starting up the rest of the load generators and then monitoring and adjust
     close_flag = False
     while not close_flag:
         if input_pipe.poll():
             message = input_pipe.recv()
-            if message == "close":
+            if message == "Quit":
                 close_flag = True
+                for i in range(0, processes_started):
+                    par_pipes[i].send("close")
+                    output_pipe.send("close")
+                    process_list[i].join()
+        if processes_started != number_of_processes:
+            #We haven't started all of the load generators
+            #So start another
+            process_list[processes_started].start()
+            processes_started = processes_started + 1
+        #Sleep at the start since we need to sleep on first entry
+        time.sleep(polling_interval)
+        for i in range(0, processes_started):
+            par_pipes[i].send("poll")
+        pipes_ready = poll_pipes(par_pipes, processes_started)
+        # reset number of requests
+        num_requests = 0
+        for i in range(0, processes_started):
+            num_requests = num_requests + par_pipes[i].recv()
+        #We've slept so poll
+        get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
+        #Check to see if we need to update the estimator
+        if polls_since_update == polls_per_update:
+            #need to update the estimator
+            #Check to see if we have 100 entries in the history list
+            if sql_cpu_history.size == 100:
+                #We have 100 entries randomly replace one of them
+                replacement_index = random.randint(0, 99)
+                #Use np.put to insert new value at index replacement_index, overwriting previous value
+                np.put(sql_cpu_history, replacement_index, sql_cpu_avg - prev_sql_cpu_avg)
+                np.put(sql_mem_history, replacement_index, sql_mem_avg - prev_sql_mem_avg)
+                np.put(web_worker_cpu_history, replacement_index, web_worker_cpu_avg - prev_web_worker_cpu_avg)
+                np.put(web_worker_mem_history, replacement_index, web_worker_mem_avg - prev_web_worker_mem_avg)
+                np.put(request_history, replacement_index, num_requests - prev_num_requests)
+                np.put(web_work_history, replacement_index, num_web_workers - prev_num_web_workers)
+                np.put(sql_history, replacement_index, num_sql - prev_num_sql)
+                
+            else:
+                #Don't have 100 entries. Append new values
+                sql_cpu_history = np.append(sql_cpu_history, sql_cpu_avg - prev_sql_cpu_avg)
+                sql_mem_history = np.append(sql_mem_history, sql_mem_avg - prev_sql_mem_avg)
+                web_worker_cpu_history = np.append(web_worker_cpu_history, web_worker_cpu_avg - prev_web_worker_cpu_avg)
+                web_worker_mem_history = np.append(web_worker_mem_history, web_worker_mem_avg - prev_web_worker_mem_avg)
+                request_history = np.append(request_history, num_requests - prev_num_requests)
+                web_work_history = np.append(web_work_history, num_web_workers - prev_num_web_workers)
+                sql_history = np.append(sql_history, num_sql - prev_num_sql)
+            #Do regression
+            target_mat = np.vstack([sql_cpu_history, web_worker_cpu_history, sql_mem_history, web_worker_mem_history]).T
+            design_mat = np.vstack([sql_history, web_work_history, request_history]).T
+            control_matrix = regularized_lin_regression(design_mat, target_mat, 0.0001)
+            estimator.update_B(control_matrix.T)
+            polls_since_update = 0
+        else:
+            polls_since_update = polls_since_update + 1
+        #TODO For Carl: Get Estimate from Estimator, make scaling decision, send values to logger
+        #Send the values to the logger
+        output_pipe.send([
 
         # do the experiment here
