@@ -19,11 +19,11 @@ def load_process(node_list, pipe):
     requests_sent = 0
     number_of_nodes = len(node_list)
     while not close_flag:
-        print(requests_sent)
+        #print(requests_sent)
         #print(read_connection.poll())
 
         if pipe.poll():
-            print(requests_sent)
+            #print(requests_sent)
             message = pipe.recv()
             if message == "close":
                 close_flag = True

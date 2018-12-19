@@ -22,14 +22,16 @@ def main():
     # change this to control the number of load processes
     # number_of_load_processes = 5
     input_pipe, output_pipe = multiprocessing.Pipe()
-    controller_process = multiprocessing.Process(target=controller, args=(input_pipe, output_pipe, args.number_loads, args.node_list, args.manager, args.poll_interval, args.polls_per_update))
-    log_process = multiprocessing.Process(target=logger, args=(output_pipe, args.log_file))
+    controller_process = multiprocessing.Process(target=controller, args=(output_pipe, args.number_loads, args.node_list, args.manager, args.poll_interval, args.polls_per_update, args.log_file))
+    
     controller_process.start()
-    log_process.start()
-    s = input('Type Quit to Quit')
+    time.sleep(120)
+    #log_process.start()
+    #time.sleep(40)
+    s = input('Type Quit to Quit ')
     input_pipe.send([s])
     controller_process.join()
-    log_process.join()
+    #log_process.join()
 
 
 if __name__ == "__main__":

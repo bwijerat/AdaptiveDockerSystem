@@ -14,6 +14,6 @@ def regularized_lin_regression(design_matrix, target_matrix, regularizer):
     #a is now a square matrix so we can use any value in a.shape for indentity matrix
     a = a + (regularizer * np.identity(a.shape[0]))
     #solve for w and return
-    w = np.linalg.lstsq(a, b)[0]
+    w = np.linalg.lstsq(a, b, rcond=None)[0]
     return w
     
