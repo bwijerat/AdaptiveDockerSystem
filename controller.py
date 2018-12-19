@@ -16,7 +16,7 @@ from urllib.request import urlopen
 
 nodes = {}
 services = {}
-
+search_range = 2
 def calculate_cpu_and_mem_percent(d):
     cpu_count = len(d["cpu_stats"]["cpu_usage"]["percpu_usage"])
     cpu_percent = 0.0
@@ -145,6 +145,20 @@ def poll_pipes(pipe_list, number_to_poll):
             pass
     return True
 
+def find_min(estimator, num_requests, search_range, threshold):
+    i = 0
+    j = 0
+    flip = False
+    estimate = estimator.estimate(np.array(0, 0, num_requests))
+    while not (estimate[0] < threshold and estimate[1] < threshold) and not (i > search_range and j > search_range):
+        if flip:
+            i = i + 1
+            flip = not flip
+        else:
+            j = j + 1
+            flip = not flip
+        estimate = estimator.estimate(np.array(i, j, num_requests))
+    return i, j
 
 # def init_system(process_list, read_pipes, write_pipes, estimator, node_list, manager
 def controller(input_pipe, output_pipe, number_of_processes, node_list, manager, polling_interval, polls_per_update):
@@ -362,10 +376,14 @@ def controller(input_pipe, output_pipe, number_of_processes, node_list, manager,
     design_mat = np.vstack([sql_history, web_work_history, request_history]).T
     control_matrix = regularized_lin_regression(design_mat, target_mat, 0.0001)
     estimator.update_B(control_matrix.T)
-    
+    estimator.update(np.array(sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg), np.identity(4))
     #Helper vars
     polls_since_update = 0
     processes_started = 2
+    delta_web = 0
+    delta_sql = 0
+    delta_requests = 0
+    scaling_triggered = False
     # TODO We have generated an initial estimate
     # Begin by starting up the rest of the load generators and then monitoring and adjust
     close_flag = False
@@ -392,6 +410,7 @@ def controller(input_pipe, output_pipe, number_of_processes, node_list, manager,
         num_requests = 0
         for i in range(0, processes_started):
             num_requests = num_requests + par_pipes[i].recv()
+        delta_requests = num_requests - prev_num_requests
         #We've slept so poll
         get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
         #Check to see if we need to update the estimator
@@ -424,11 +443,56 @@ def controller(input_pipe, output_pipe, number_of_processes, node_list, manager,
             design_mat = np.vstack([sql_history, web_work_history, request_history]).T
             control_matrix = regularized_lin_regression(design_mat, target_mat, 0.0001)
             estimator.update_B(control_matrix.T)
+            #Also need to correct Kalman gain
+            estimator.update(np.array(sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg), 0.002 * np.random.randn(4, 4))
             polls_since_update = 0
         else:
             polls_since_update = polls_since_update + 1
         #TODO For Carl: Get Estimate from Estimator, make scaling decision, send values to logger
+        store_stats(sql_cpu_avg, sql_mem_avg, web_worker_mem_avg, web_worker_cpu_avg, num_web_workers, num_sql,
+                num_requests, prev_sql_cpu_avg, prev_sql_mem_avg, prev_web_worker_mem_avg, prev_web_worker_cpu_avg,
+                prev_num_web_workers, prev_num_sql, prev_num_requests)
+        estimate = estimator.estimate(np.array(0, 0, delta_requests))
+        if estimate[1] >= cpu_upper_threshold:
+            #We assume the web worker needs scaling most of the time
+            scaling_triggered = True
+            while not (estimate[1] < cpu_upper_threshold or delta_web == search_range):
+                delta_web = delta_web + 1
+                estimate = estimator.estimate(np.array(0, delta_web, delta_requests))
+
+        if estimate[0] >= cpu_upper_threshold:
+            scaling_triggered = True
+            while not (estimate[1] < cpu_upper_threshold or delta_sql == search_range):
+                delta_sql = delta_sql + 1
+                estimate = estimator.estimate(np.array(delta_sql, delta_web, delta_requests))
+        if not scaling_triggered:
+            #just to prevent two cases triggering
+            if estimate[1] <= cpu_lower_threshold:
+            #We assume the web worker needs scaling most of the time
+            scaling_triggered = True
+            while not (estimate[1] > cpu_lower_threshold or abs(delta_web) == search_range):
+                delta_web = delta_web - 1
+                estimate = estimator.estimate(np.array(0, delta_web, delta_requests))
+
+            if estimate[0] <= cpu_lower_threshold:
+                scaling_triggered = True
+                while not (estimate[1] > cpu_upper_threshold or abs(delta_sql) == search_range):
+                    delta_sql = delta_sql - 1
+                    estimate = estimator.estimate(np.array(delta_sql, delta_web, delta_requests))
+        #We have made our decision actually update estimator
+        estimator.predict(np.array(delta_sql, delta_web, delta_requests))
+        if scaling_triggered:
+            #Actually do the scaling here
+            num_web_workers = num_web_workers + delta_web
+            num_sql = num_sql + delta_sql
+            scale(services["web-worker"], num_web_workers, manager)
+            scale(services["mysql"], num_sql, manager)
+            delta_web = 0
+            delta_sql = 0
+            scaling_triggered = 0
         #Send the values to the logger
-        output_pipe.send([
+        #order will be sql_cpu web_worker_cpu sql_mem web_worker_mem num_sql num_web_workers
+        #For each value we send actual then predicted
+        output_pipe.send([sql_cpu_avg, estimator.x[0], web_worker_cpu_avg, estimator.x[1], sql_mem_avg, estimator.x[2], web_worker_mem_avg, estimator.x[3], num_sql, num_web_workers])
 
         # do the experiment here
