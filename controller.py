@@ -9,7 +9,7 @@ import requests
 import time
 import math
 from urllib.request import urlopen
-
+import datetime
 
 # Some global variables go here
 # Number of load generating processes to spawn
@@ -166,7 +166,7 @@ def find_min(estimator, num_requests, search_range, threshold):
     return i, j
 
 # def init_system(process_list, read_pipes, write_pipes, estimator, node_list, manager
-def controller(input_pipe, number_of_processes, node_list, manager, polling_interval, polls_per_update, log_file):
+def controller(input_pipe, number_of_processes, node_list, req_list, manager, polling_interval, polls_per_update, log_file):
     close_flag = False
     # Node list
     #node_list = ["192.168.56.102:4000", "192.168.56.103:4000", "192.168.56.101:4000"]
@@ -174,8 +174,8 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
     services = {}
 
     # upper and lower cpu usage thresholds where scaling should happen on
-    cpu_upper_threshold = 0.5
-    cpu_lower_threshold = 0.2
+    cpu_upper_threshold = 50.0
+    cpu_lower_threshold = 20.0
     # create list of processes and pipes
     process_list = []
     # pipes that main thread will read from and load threads will write to
@@ -210,7 +210,7 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
         par_pipes.append(par_pipe)
         child_pipes.append(child_pipe)
 
-        temp_process = multiprocessing.Process(target=load_process, args=(node_list, child_pipes[i]))
+        temp_process = multiprocessing.Process(target=load_process, args=(req_list, child_pipes[i]))
         process_list.append(temp_process)
 
 
@@ -262,7 +262,11 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
     #print('BOOM {}'.format(num_requests))
 
     # get the stats
-    get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
+    sql_cpu_usages = []
+    sql_mem_usages = []
+    web_worker_cpu_usages = []
+    web_worker_mem_usages = []
+    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
     # create some np arrays for the regression
     sql_cpu_history = np.asarray(sql_cpu_avg - prev_sql_cpu_avg)
     sql_mem_history = np.asarray(sql_mem_avg - prev_sql_mem_avg)
@@ -292,6 +296,10 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
     # If the loop above has been broken then we can read the information from the pipe
     num_requests = par_pipes[0].recv()
     # get the stats
+    sql_cpu_usages = []
+    sql_mem_usages = []
+    web_worker_cpu_usages = []
+    web_worker_mem_usages = []
     sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg,
               sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
     # Append new values to the histories
@@ -340,6 +348,10 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
     for service_name, service in services.items():
         get_tasks(service, manager)
     # get the stats
+    sql_cpu_usages = []
+    sql_mem_usages = []
+    web_worker_cpu_usages = []
+    web_worker_mem_usages = []
     sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
     # Append new values to the histories
     sql_cpu_history = np.append(sql_cpu_history, sql_cpu_avg - prev_sql_cpu_avg)
@@ -381,6 +393,10 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
         num_requests = num_requests + par_pipes[i].recv()
 
     # get the stats
+    sql_cpu_usages = []
+    sql_mem_usages = []
+    web_worker_cpu_usages = []
+    web_worker_mem_usages = []
     sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
     
     # Append new values to the histories
@@ -409,9 +425,9 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
     target_mat = np.vstack([sql_cpu_history, web_worker_cpu_history, sql_mem_history, web_worker_mem_history]).T
     design_mat = np.vstack([sql_history, web_work_history, request_history]).T
     control_matrix = regularized_lin_regression(design_mat, target_mat, 0.0001)
-    print(control_matrix)
+    #print(control_matrix)
     estimator.update_B(control_matrix.T)
-    print(control_matrix.T)
+    #print(control_matrix.T)
     obs = np.array([[sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg]]).T
     estimator.update(obs, np.identity(4))
     #Helper vars
@@ -428,25 +444,42 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
     output_pipe, log_pipe = multiprocessing.Pipe()
     log_process = multiprocessing.Process(target=logger, args=(log_pipe, log_file))
     log_process.start()
+    iteration_count = 0
+    #old_time = datetime.datetime.now()
+    output_pipe.send([sql_cpu_avg, estimator.x[0][0], web_worker_cpu_avg, estimator.x[1][0], sql_mem_avg, estimator.x[2][0], web_worker_mem_avg, estimator.x[3][0], num_sql, num_web_workers, delta_requests, iteration_count, 0.0, 0.0])
+    print("Experiment Started")
     while not close_flag:
+        old_time = time.time()
         if input_pipe.poll():
             message = input_pipe.recv()
             if message == "Quit":
                 close_flag = True
+                print("Shutting down")
                 for i in range(0, processes_started):
                     par_pipes[i].send("close")
                     
                     process_list[i].join()
-                print("Loads spun down")    
+                    print("Load process {0}".format(i))
+                print("Loads spun down")
+                scale(services["web-worker"], 2, manager)
+                scale(services["mysql"], 1, manager)
                 output_pipe.send("close")
                 log_process.join()
+                print("Logger shut down")
+                break
         if (processes_started != number_of_processes):
             #We haven't started all of the load generators
             #So start another
             process_list[processes_started].start()
             processes_started = processes_started + 1
         #Sleep at the start since we need to sleep on first entry
+        
         time.sleep(polling_interval)
+        if close_flag:
+            for service_name, service in services.items():
+                get_tasks(service, manager)
+            scaling_triggered = False
+        iteration_count = iteration_count + 1
         for i in range(0, processes_started):
             par_pipes[i].send("poll")
         pipes_ready = poll_pipes(par_pipes, processes_started)
@@ -456,6 +489,10 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
             num_requests = num_requests + par_pipes[i].recv()
         delta_requests = num_requests - prev_num_requests
         #We've slept so poll
+        sql_cpu_usages = []
+        sql_mem_usages = []
+        web_worker_cpu_usages = []
+        web_worker_mem_usages = []
         sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
         #Check to see if we need to update the estimator
         if polls_since_update == polls_per_update:
@@ -543,13 +580,13 @@ def controller(input_pipe, number_of_processes, node_list, manager, polling_inte
             delta_web = 0
             delta_sql = 0
             scaling_triggered = 0
-            time.sleep(0.05)
-            for service_name, service in services.items():
-                get_tasks(service, manager)
-            scaling_triggered = False
+            #time.sleep(0.05)
+            
         #Send the values to the logger
         #order will be sql_cpu web_worker_cpu sql_mem web_worker_mem num_sql num_web_workers
         #For each value we send actual then predicted
-        output_pipe.send([sql_cpu_avg, estimator.x[0], web_worker_cpu_avg, estimator.x[1], sql_mem_avg, estimator.x[2], web_worker_mem_avg, estimator.x[3], num_sql, num_web_workers, delta_requests])
+        diff_time = time.time() - old_time
+        minutes, seconds = diff_time // 60, diff_time % 60
+        output_pipe.send([sql_cpu_avg, estimator.x[0][0], web_worker_cpu_avg, estimator.x[1][0], sql_mem_avg, estimator.x[2][0], web_worker_mem_avg, estimator.x[3][0], num_sql, num_web_workers, delta_requests, iteration_count, minutes, seconds])
         #time.sleep(polling_interval)
         # do the experiment here

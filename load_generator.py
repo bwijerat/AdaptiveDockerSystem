@@ -21,32 +21,34 @@ def load_process(node_list, pipe):
     while not close_flag:
         #print(requests_sent)
         #print(read_connection.poll())
+        try:
+            if pipe.poll():
+                #print(requests_sent)
+                message = pipe.recv()
+                if message == "close":
+                    close_flag = True
+                elif message == "poll":
+                    pipe.send(requests_sent)
+                    requests_sent = 0
+            # pick a random node to send the request to
+            node_number = random.randint(0, number_of_nodes - 1)
+            # pick a operation
+            # There are 3 possible operations
+            operation_number = random.randint(0, 2)
+            if operation_number == 0:
+                # Calculate pi
+                r = requests.get('http://{0}/dataop/pi'.format(node_list[node_number]))
+            elif operation_number == 1:
+                # Select a number of users
+                number_to_select = random.randint(1, 100)
+                r = requests.get('http://{0}/dataop/SelectUsers?recordsCnt={1}'.format(node_list[node_number], number_to_select))
+            elif operation_number == 2:
+                # Insert a new user
+                r = requests.get('http://{0}/dataop/InsertUsers?fName={1}&lName={2}'.format(node_list[node_number], randomString(random.randint(1, 10)), randomString(random.randint(1, 10))))
 
-        if pipe.poll():
-            #print(requests_sent)
-            message = pipe.recv()
-            if message == "close":
-                close_flag = True
-            elif message == "poll":
-                pipe.send(requests_sent)
-                requests_sent = 0
-        # pick a random node to send the request to
-        node_number = random.randint(0, number_of_nodes - 1)
-        # pick a operation
-        # There are 3 possible operations
-        operation_number = random.randint(0, 2)
-        if operation_number == 0:
-            # Calculate pi
-            r = requests.get('http://{0}/dataop/pi'.format(node_list[node_number]))
-        elif operation_number == 1:
-            # Select a number of users
-            number_to_select = random.randint(1, 100)
-            r = requests.get('http://{0}/dataop/SelectUsers?recordsCnt={1}'.format(node_list[node_number], number_to_select))
-        elif operation_number == 2:
-            # Insert a new user
-            r = requests.get('http://{0}/dataop/InsertUsers?fName={1}&lName={2}'.format(node_list[node_number], randomString(random.randint(1, 10)), randomString(random.randint(1, 10))))
-
-        requests_sent = requests_sent + 1
+            requests_sent = requests_sent + 1
+        except:
+            pass
 
         # To prevent sending too many requests the process will sleep for a random number of miliseconds between 10 and 50
         sleep_mili_interval = random.uniform(10.0, 50.0)

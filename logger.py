@@ -8,7 +8,8 @@ def logger(pipe, log_file):
         while not pipe.poll():
             pass
         pipe_tuple = pipe.recv()
-        if pipe_tuple[0] == "close":
+        if pipe_tuple == "close":
+            print("Logger shutting down")
             close_flag = True
             f.close()
         else:
