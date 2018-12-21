@@ -10,103 +10,16 @@ import time
 import math
 from urllib.request import urlopen
 import datetime
-
+from utils import get_stats, getNodeIDs, get_tasks, getServices
 # Some global variables go here
 # Number of load generating processes to spawn
 # number_of_processes = 5
 
-nodes = {}
-services = {}
+#nodes = {}
+#services = {}
 search_range = 2
 max_containers = 20
-def calculate_cpu_and_mem_percent(d):
-    cpu_count = len(d["cpu_stats"]["cpu_usage"]["percpu_usage"])
-    cpu_percent = 0.0
-    cpu_delta = float(d["cpu_stats"]["cpu_usage"]["total_usage"]) - \
-                float(d["precpu_stats"]["cpu_usage"]["total_usage"])
-    system_delta = float(d["cpu_stats"]["system_cpu_usage"]) - \
-                   float(d["precpu_stats"]["system_cpu_usage"])
-    if system_delta > 0.0:
-        cpu_percent = cpu_delta / system_delta * 100.0 * cpu_count
-    mem_usage = float(d["memory_stats"]["usage"])
-    mem_limit = float(d["memory_stats"]["limit"])
-    mem_percentage = mem_usage / mem_limit * 100
-    return cpu_percent, mem_percentage
 
-
-def get_tasks(service, manager):
-    service["tasks"] = []
-    with urlopen(
-            'http://{manager}/tasks?filters={{"service":{{"{service}":true}},"desired-state":{{"running":true}}}}'.format(
-                manager=manager, service=service["name"])) as url:
-        data = json.loads(url.read().decode())
-        #print("{service} tasks:".format(service=service["name"]))
-        for task in data:
-            if task["Status"]["State"] == "running":
-                container_id = task["Status"]["ContainerStatus"]["ContainerID"]
-            else:
-                continue
-            node_id = task["NodeID"]
-            service["tasks"].append({"ContainerID": container_id, "NodeID": node_id})
-            #print('''\t ContainerID: {}, NodeID: {} '''.format(container_id, node_id))
-
-
-# get all NodeIDs in swarm
-# nodes = {}
-# print("Nodes:")
-# Get node IDs
-def getNodeIDs(node_list, nodes):
-    for node in node_list:
-        with urlopen("http://{node}/info".format(node=node)) as url:
-            data = json.loads(url.read().decode())
-            nodes[data["Swarm"]["NodeID"]] = node
-            #print('''\t NodeID: {} '''.format(
-                #data["Swarm"]["NodeID"], ))
-
-
-# list all the services
-# services = {}
-def getServices(services, manager):
-    with urlopen("http://{manager}/services".format(manager=manager)) as url:
-        data = json.loads(url.read().decode())
-        #print("Services:")
-        for service in data:
-            services[service["Spec"]["Name"]] = {"name": service["Spec"]["Name"], "tasks": []}
-            #print('''\t name: {}, version: {}, replicas: {}  '''.format(
-                #service["Spec"]["Name"],
-                #service["Version"]["Index"],
-                #service["Spec"]["Mode"]["Replicated"]["Replicas"]))
-
-
-# get the tasks running on our swarm cluster
-
-# for service_name, service in services.items():
-# get_tasks(service)
-
-def get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg):
-    for task in services["web-worker"]["tasks"]:
-        with urlopen('http://{node}/containers/{containerID}/stats?stream=false'.format(
-                node=nodes[task["NodeID"]], containerID=task["ContainerID"])) as url:
-            data = json.loads(url.read().decode())
-            task_cpu, task_mem = calculate_cpu_and_mem_percent(data)
-            web_worker_cpu_usages.append(task_cpu)
-            web_worker_mem_usages.append(task_mem)
-
-    # repeat for sql stats
-    for task in services["mysql"]["tasks"]:
-        with urlopen('http://{node}/containers/{containerID}/stats?stream=false'.format(
-                node=nodes[task["NodeID"]], containerID=task["ContainerID"])) as url:
-            data = json.loads(url.read().decode())
-            task_cpu, task_mem = calculate_cpu_and_mem_percent(data)
-            sql_cpu_usages.append(task_cpu)
-            sql_mem_usages.append(task_mem)
-    # get averages
-    sql_cpu_avg = float(sum(sql_cpu_usages) / len(sql_cpu_usages))
-    sql_mem_avg = float(sum(sql_mem_usages) / len(sql_mem_usages))
-    web_worker_cpu_avg = float(sum(web_worker_cpu_usages) / len(web_worker_cpu_usages))
-    #print(web_worker_cpu_avg)
-    web_worker_mem_avg = float(sum(web_worker_mem_usages) / len(web_worker_mem_usages))
-    return sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg
 
 
 def store_stats(sql_cpu_avg, sql_mem_avg, web_worker_mem_avg, web_worker_cpu_avg, num_web_workers, num_sql, num_requests, prev_sql_cpu_avg, prev_sql_mem_avg, prev_web_worker_mem_avg, prev_web_worker_cpu_avg, prev_num_web_workers, prev_num_sql, prev_num_requests):
@@ -166,12 +79,12 @@ def find_min(estimator, num_requests, search_range, threshold):
     return i, j
 
 # def init_system(process_list, read_pipes, write_pipes, estimator, node_list, manager
-def controller(input_pipe, number_of_processes, node_list, req_list, manager, polling_interval, polls_per_update, log_file):
+def controller(input_pipe, number_of_processes, node_list, req_list, manager, polling_interval, polls_per_update, log_file, nodes, services):
     close_flag = False
     # Node list
     #node_list = ["192.168.56.102:4000", "192.168.56.103:4000", "192.168.56.101:4000"]
     #manager = "192.168.56.102:4000"
-    services = {}
+    #services = {}
 
     # upper and lower cpu usage thresholds where scaling should happen on
     cpu_upper_threshold = 50.0
@@ -215,18 +128,17 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
 
 
     # get services, nodes and tasks
-    getNodeIDs(node_list, nodes)
-    getServices(services, manager)
+    
     #Always start with 2 web worker and 1 sql
     scale(services["web-worker"], num_web_workers, manager)
     scale(services["mysql"], num_sql, manager)
-    time.sleep(0.1)
+    time.sleep(7)
     for service_name, service in services.items():
         get_tasks(service, manager)
 
     # get initial stats
     # get web-worker stats
-    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
+    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, nodes)
 
     # initalize estimator
     init_x = np.asarray((sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg))
@@ -266,7 +178,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     sql_mem_usages = []
     web_worker_cpu_usages = []
     web_worker_mem_usages = []
-    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
+    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, nodes)
     # create some np arrays for the regression
     sql_cpu_history = np.asarray(sql_cpu_avg - prev_sql_cpu_avg)
     sql_mem_history = np.asarray(sql_mem_avg - prev_sql_mem_avg)
@@ -300,8 +212,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     sql_mem_usages = []
     web_worker_cpu_usages = []
     web_worker_mem_usages = []
-    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg,
-              sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
+    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, nodes)
     # Append new values to the histories
     sql_cpu_history = np.append(sql_cpu_history, sql_cpu_avg - prev_sql_cpu_avg)
     sql_mem_history = np.append(sql_mem_history, sql_mem_avg - prev_sql_mem_avg)
@@ -352,7 +263,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     sql_mem_usages = []
     web_worker_cpu_usages = []
     web_worker_mem_usages = []
-    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
+    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, nodes)
     # Append new values to the histories
     sql_cpu_history = np.append(sql_cpu_history, sql_cpu_avg - prev_sql_cpu_avg)
     sql_mem_history = np.append(sql_mem_history, sql_mem_avg - prev_sql_mem_avg)
@@ -397,7 +308,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     sql_mem_usages = []
     web_worker_cpu_usages = []
     web_worker_mem_usages = []
-    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
+    sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, nodes)
     
     # Append new values to the histories
     sql_cpu_history = np.append(sql_cpu_history, sql_cpu_avg - prev_sql_cpu_avg)
@@ -442,14 +353,15 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     close_flag = False
     #print("Experiment Started\n")
     output_pipe, log_pipe = multiprocessing.Pipe()
-    log_process = multiprocessing.Process(target=logger, args=(log_pipe, log_file))
+    startTime = time.time()
+    log_process = multiprocessing.Process(target=logger, args=(log_pipe, log_file, node_list, manager, startTime, polling_interval, nodes, services))
     log_process.start()
     iteration_count = 0
     #old_time = datetime.datetime.now()
-    output_pipe.send([sql_cpu_avg, estimator.x[0][0], web_worker_cpu_avg, estimator.x[1][0], sql_mem_avg, estimator.x[2][0], web_worker_mem_avg, estimator.x[3][0], num_sql, num_web_workers, delta_requests, iteration_count, 0.0, 0.0])
+    output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, iteration_count, 0.0, 0.0, False])
     print("Experiment Started")
     while not close_flag:
-        old_time = time.time()
+        #old_time = time.time()
         if input_pipe.poll():
             message = input_pipe.recv()
             if message == "Quit":
@@ -475,7 +387,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
         #Sleep at the start since we need to sleep on first entry
         
         time.sleep(polling_interval)
-        if close_flag:
+        if scaling_triggered:
             for service_name, service in services.items():
                 get_tasks(service, manager)
             scaling_triggered = False
@@ -493,9 +405,10 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
         sql_mem_usages = []
         web_worker_cpu_usages = []
         web_worker_mem_usages = []
-        sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, sql_cpu_avg, sql_mem_avg, web_worker_cpu_avg, web_worker_mem_avg)
+        
         #Check to see if we need to update the estimator
         if polls_since_update == polls_per_update:
+            sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, nodes)
             #need to update the estimator
             #Check to see if we have 100 entries in the history list
             if sql_cpu_history.size == 100:
@@ -579,14 +492,14 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
             scale(services["mysql"], num_sql, manager)
             delta_web = 0
             delta_sql = 0
-            scaling_triggered = 0
+            #scaling_triggered = 0
             #time.sleep(0.05)
             
         #Send the values to the logger
         #order will be sql_cpu web_worker_cpu sql_mem web_worker_mem num_sql num_web_workers
         #For each value we send actual then predicted
-        diff_time = time.time() - old_time
+        diff_time = time.time() - startTime
         minutes, seconds = diff_time // 60, diff_time % 60
-        output_pipe.send([sql_cpu_avg, estimator.x[0][0], web_worker_cpu_avg, estimator.x[1][0], sql_mem_avg, estimator.x[2][0], web_worker_mem_avg, estimator.x[3][0], num_sql, num_web_workers, delta_requests, iteration_count, minutes, seconds])
+        output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, iteration_count, minutes, seconds, scaling_triggered])
         #time.sleep(polling_interval)
         # do the experiment here

@@ -3,7 +3,7 @@ import time
 import argparse
 from controller import controller
 from logger import logger
-
+from utils import get_stats, getNodeIDs, get_tasks, getServices
 
 def main():
     parser = argparse.ArgumentParser()
@@ -22,8 +22,12 @@ def main():
 
     # change this to control the number of load processes
     # number_of_load_processes = 5
+    services = {}
+    nodes = {}
     input_pipe, output_pipe = multiprocessing.Pipe()
-    controller_process = multiprocessing.Process(target=controller, args=(output_pipe, args.number_loads, args.node_list, args.req_list, args.manager, args.poll_interval, args.polls_per_update, args.log_file))
+    getNodeIDs(args.node_list, nodes)
+    getServices(services, args.manager)
+    controller_process = multiprocessing.Process(target=controller, args=(output_pipe, args.number_loads, args.node_list, args.req_list, args.manager, args.poll_interval, args.polls_per_update, args.log_file, nodes, services))
     
     controller_process.start()
     time.sleep(120)
