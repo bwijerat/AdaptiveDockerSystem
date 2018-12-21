@@ -78,16 +78,18 @@ def get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, w
                 web_worker_cpu_usages.append(task_cpu)
                 web_worker_mem_usages.append(task_mem)
         except:
-            print('http://{node}/containers/{containerID}/stats?stream=false'.format(
-                node=nodes[task["NodeID"]], containerID=task["ContainerID"]))
+            pass
     # repeat for sql stats
     for task in services["mysql"]["tasks"]:
-        with urlopen('http://{node}/containers/{containerID}/stats?stream=false'.format(
+        try:
+            with urlopen('http://{node}/containers/{containerID}/stats?stream=false'.format(
                 node=nodes[task["NodeID"]], containerID=task["ContainerID"])) as url:
-            data = json.loads(url.read().decode())
-            task_cpu, task_mem = calculate_cpu_and_mem_percent(data)
-            sql_cpu_usages.append(task_cpu)
-            sql_mem_usages.append(task_mem)
+                data = json.loads(url.read().decode())
+                task_cpu, task_mem = calculate_cpu_and_mem_percent(data)
+                sql_cpu_usages.append(task_cpu)
+                sql_mem_usages.append(task_mem)
+        except:
+            pass
     # get averages
     sql_cpu_avg = float(sum(sql_cpu_usages) / len(sql_cpu_usages))
     sql_mem_avg = float(sum(sql_mem_usages) / len(sql_mem_usages))
