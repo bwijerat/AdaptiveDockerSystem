@@ -6,6 +6,8 @@ def logger(pipe, log_file, node_list, manager, startTime, interval, nodes, servi
     close_flag = False
     logWriter = csv.writer(f, dialect='excel')
     logWriter2 = csv.writer(f2, dialect='excel')
+    logWriter.writerow(["SQL CPU", "Web Worker CPU", "SQL Memory", "Web Worker Memory", "# SQL Containers", "# Web Worker Containers", "Delta Requests", "# Requests", "Iteration", "Minutes", "Seconds")
+    logWriter2.writerow(["SQL CPU", "Web Worker CPU", "SQL Memory", "Web Worker Memory", "Minutes", "Seconds")
     #services = {}
     #nodes = {}
     #getNodeIDs(node_list, nodes)
@@ -38,12 +40,12 @@ def logger(pipe, log_file, node_list, manager, startTime, interval, nodes, servi
                     f.close()
                     f2.close()
                 else:
-                    if pipe_tuple[10] == True:
+                    if pipe_tuple[11] == True:
                     #time.sleep(interval)
                         for service_name, service in services.items():
                             get_tasks(service, manager)
                 
-                    logWriter.writerow(pipe_tuple[:10])
+                    logWriter.writerow(pipe_tuple[:11])
             sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg = get_stats(services, sql_cpu_usages, sql_mem_usages, web_worker_cpu_usages, web_worker_mem_usages, nodes)
             diff_time = time.time() - startTime
             logWriter2.writerow([sql_cpu_avg, web_worker_cpu_avg, sql_mem_avg, web_worker_mem_avg, diff_time//60, diff_time%60])
@@ -57,4 +59,4 @@ def logger(pipe, log_file, node_list, manager, startTime, interval, nodes, servi
                     f.close()
                     f2.close()
                 else:                
-                    logWriter.writerow(pipe_tuple[:10])
+                    logWriter.writerow(pipe_tuple[:11])

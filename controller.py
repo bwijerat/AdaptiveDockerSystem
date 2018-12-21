@@ -395,7 +395,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
             
             diff_time = time.time() - startTime
             minutes, seconds = diff_time // 60, diff_time % 60
-            output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, iteration_count, minutes, seconds, scaling_triggered])
+            output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, num_requests, iteration_count, minutes, seconds, scaling_triggered])
             scaling_triggered = False
         iteration_count = iteration_count + 1
         for i in range(0, processes_started):
@@ -507,6 +507,6 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
         if not scaling_triggered:
             diff_time = time.time() - startTime
             minutes, seconds = diff_time // 60, diff_time % 60
-            output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, iteration_count, minutes, seconds, scaling_triggered])
+            output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, num_requests, iteration_count, minutes, seconds, scaling_triggered])
         #time.sleep(polling_interval)
         # do the experiment here
