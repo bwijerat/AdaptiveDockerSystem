@@ -116,7 +116,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     prev_num_requests = 0
 
     # CREATE SPECIFIED NUMBER OF PROCESSES
-    for i in range(0, number_of_processes):
+    for i in range(0, number_of_processes+4):
         # Create new pipe
         par_pipe, child_pipe = multiprocessing.Pipe()
 
@@ -352,6 +352,9 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     # Begin by starting up the rest of the load generators and then monitoring and adjust
     close_flag = False
     #print("Experiment Started\n")
+    for i in range(2, 4):
+        process_list[i].start()
+        processes_started = processes_started + 1
     output_pipe, log_pipe = multiprocessing.Pipe()
     close_pipe, log_close_pipe = multiprocessing.Pipe()
     startTime = time.time()
@@ -359,7 +362,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     log_process.start()
     iteration_count = 0
     #old_time = datetime.datetime.now()
-    output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, iteration_count, 0.0, 0.0, True])
+    output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, num_requests, iteration_count, 0.0, 0.0, True])
     print("Experiment Started")
     while not close_flag:
         #old_time = time.time()
@@ -381,7 +384,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
                 log_process.join()
                 print("Logger shut down")
                 break
-        if (processes_started != number_of_processes):
+        if (processes_started < number_of_processes and (iteration_count%10 == 0)):
             #We haven't started all of the load generators
             #So start another
             process_list[processes_started].start()
@@ -398,6 +401,20 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
             output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, num_requests, iteration_count, minutes, seconds, scaling_triggered])
             scaling_triggered = False
         iteration_count = iteration_count + 1
+        
+        ###################################### TEST ABILITY TO REACT TO A SPIKE
+        if (iteration_count == 200) or (iteration_count == 350):
+            for i in range(number_of_processes, number_of_processes+4):
+                process_list[i].start()
+                processes_started = processes_started + 1
+        
+        
+        if (iteration_count == 275) or (iteration_count == 400):
+            for i in range(number_of_processes, number_of_processes+3):
+                par_pipes[i].send("close")
+                processes_started = processes_started - 1
+        
+        
         for i in range(0, processes_started):
             par_pipes[i].send("poll")
         pipes_ready = poll_pipes(par_pipes, processes_started)

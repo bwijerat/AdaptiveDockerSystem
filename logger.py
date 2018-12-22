@@ -6,8 +6,8 @@ def logger(pipe, log_file, node_list, manager, startTime, interval, nodes, servi
     close_flag = False
     logWriter = csv.writer(f, dialect='excel')
     logWriter2 = csv.writer(f2, dialect='excel')
-    logWriter.writerow(["SQL CPU", "Web Worker CPU", "SQL Memory", "Web Worker Memory", "# SQL Containers", "# Web Worker Containers", "Delta Requests", "# Requests", "Iteration", "Minutes", "Seconds")
-    logWriter2.writerow(["SQL CPU", "Web Worker CPU", "SQL Memory", "Web Worker Memory", "Minutes", "Seconds")
+    logWriter.writerow(["SQL CPU", "Web Worker CPU", "SQL Memory", "Web Worker Memory", "# SQL Containers", "# Web Worker Containers", "Delta Requests", "# Requests", "Iteration", "Minutes", "Seconds"])
+    logWriter2.writerow(["SQL CPU", "Web Worker CPU", "SQL Memory", "Web Worker Memory", "Minutes", "Seconds"])
     #services = {}
     #nodes = {}
     #getNodeIDs(node_list, nodes)
