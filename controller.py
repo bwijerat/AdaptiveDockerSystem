@@ -395,7 +395,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
                 print("Logger shut down")
                 print(estimator.B)
                 break
-        if (processes_started < number_of_processes and (iteration_count%10 == 0)):
+        if (processes_started < number_of_processes and (iteration_count%20 == 0)):
             #We haven't started all of the load generators
             #So start another
             process_list[processes_started].start()
@@ -407,14 +407,13 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
             for service_name, service in services.items():
                 get_tasks(service, manager)
             
-            diff_time = time.time() - startTime
-            minutes, seconds = diff_time // 60, diff_time % 60
+            
             output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, num_requests, iteration_count, minutes, seconds, scaling_triggered])
             scaling_triggered = False
         iteration_count = iteration_count + 1
         
         ###################################### TEST ABILITY TO REACT TO A SPIKE
-        if (iteration_count == 100):
+        if (iteration_count == 120):
             for i in range(0, spike_size):
                 spike_list[i].start()
                 #processes_started = processes_started + 1
@@ -422,13 +421,13 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
                 spike_number = 1
         
         
-        if (iteration_count == 150):
+        if (iteration_count == 175):
             for i in range(0, spike_size):
                 spike_par_pipes[i].send("close")
                 #processes_started = processes_started - 1
                 spike = False
         
-        if (iteration_count == 215):
+        if (iteration_count == 230):
             for i in range(spike_size, 2*spike_size):
                 spike_list[i].start()
                 #processes_started = processes_started + 1
@@ -436,7 +435,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
                 spike_number = 2
         
         
-        if (iteration_count == 265):
+        if (iteration_count == 280):
             for i in range(spike_size, 2*spike_size):
                 spike_par_pipes[i].send("close")
                 #processes_started = processes_started - 1
@@ -570,9 +569,11 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
         #Send the values to the logger
         #order will be sql_cpu web_worker_cpu sql_mem web_worker_mem num_sql num_web_workers
         #For each value we send actual then predicted
+        diff_time = time.time() - startTime
+        minutes, seconds = diff_time // 60, diff_time % 60
         if not scaling_triggered:
-            diff_time = time.time() - startTime
-            minutes, seconds = diff_time // 60, diff_time % 60
+            #diff_time = time.time() - startTime
+            #minutes, seconds = diff_time // 60, diff_time % 60
             output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, num_requests, iteration_count, minutes, seconds, scaling_triggered])
         #time.sleep(polling_interval)
         # do the experiment here
