@@ -91,10 +91,13 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     cpu_lower_threshold = 20.0
     # create list of processes and pipes
     process_list = []
+    spike_list = []
     # pipes that main thread will read from and load threads will write to
     par_pipes = []
+    spike_par_pipes = []
     # pipes that main thread will write to and load threads will read from
     child_pipes = []
+    spike_child_pipes = []
     sql_cpu_usages = []
     sql_mem_usages = []
     web_worker_cpu_usages = []
@@ -114,9 +117,9 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     prev_num_web_workers = 0
     prev_num_sql = 0
     prev_num_requests = 0
-
+    spike_size = 3
     # CREATE SPECIFIED NUMBER OF PROCESSES
-    for i in range(0, number_of_processes+4):
+    for i in range(0, number_of_processes):
         # Create new pipe
         par_pipe, child_pipe = multiprocessing.Pipe()
 
@@ -126,7 +129,15 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
         temp_process = multiprocessing.Process(target=load_process, args=(req_list, child_pipes[i]))
         process_list.append(temp_process)
 
+    for i in range(0, spike_size*2):
+        par_pipe, child_pipe = multiprocessing.Pipe()
 
+        spike_par_pipes.append(par_pipe)
+        spike_child_pipes.append(child_pipe)
+        temp_process = multiprocessing.Process(target=load_process, args=(req_list, spike_child_pipes[i]))
+        spike_list.append(temp_process)
+        
+        
     # get services, nodes and tasks
     
     #Always start with 2 web worker and 1 sql
@@ -352,9 +363,6 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     # Begin by starting up the rest of the load generators and then monitoring and adjust
     close_flag = False
     #print("Experiment Started\n")
-    for i in range(2, 4):
-        process_list[i].start()
-        processes_started = processes_started + 1
     output_pipe, log_pipe = multiprocessing.Pipe()
     close_pipe, log_close_pipe = multiprocessing.Pipe()
     startTime = time.time()
@@ -364,6 +372,8 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
     #old_time = datetime.datetime.now()
     output_pipe.send([estimator.x[0][0],estimator.x[1][0], estimator.x[2][0], estimator.x[3][0], num_sql, num_web_workers, delta_requests, num_requests, iteration_count, 0.0, 0.0, True])
     print("Experiment Started")
+    spike = False
+    spike_number = 0
     while not close_flag:
         #old_time = time.time()
         if input_pipe.poll():
@@ -383,6 +393,7 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
                 close_pipe.send("close")
                 log_process.join()
                 print("Logger shut down")
+                print(estimator.B)
                 break
         if (processes_started < number_of_processes and (iteration_count%10 == 0)):
             #We haven't started all of the load generators
@@ -403,25 +414,63 @@ def controller(input_pipe, number_of_processes, node_list, req_list, manager, po
         iteration_count = iteration_count + 1
         
         ###################################### TEST ABILITY TO REACT TO A SPIKE
-        if (iteration_count == 200) or (iteration_count == 350):
-            for i in range(number_of_processes, number_of_processes+4):
-                process_list[i].start()
-                processes_started = processes_started + 1
+        if (iteration_count == 100):
+            for i in range(0, spike_size):
+                spike_list[i].start()
+                #processes_started = processes_started + 1
+                spike = True
+                spike_number = 1
         
         
-        if (iteration_count == 275) or (iteration_count == 400):
-            for i in range(number_of_processes, number_of_processes+3):
-                par_pipes[i].send("close")
-                processes_started = processes_started - 1
+        if (iteration_count == 150):
+            for i in range(0, spike_size):
+                spike_par_pipes[i].send("close")
+                #processes_started = processes_started - 1
+                spike = False
+        
+        if (iteration_count == 215):
+            for i in range(spike_size, 2*spike_size):
+                spike_list[i].start()
+                #processes_started = processes_started + 1
+                spike = True
+                spike_number = 2
+        
+        
+        if (iteration_count == 265):
+            for i in range(spike_size, 2*spike_size):
+                spike_par_pipes[i].send("close")
+                #processes_started = processes_started - 1
+                spike = False
         
         
         for i in range(0, processes_started):
             par_pipes[i].send("poll")
+        if spike:
+            if spike_number == 1:
+                for i in range(0, spike_size):
+                    spike_par_pipes[i].send("poll")
+                for i in range(0, spike_size):
+                    while not spike_par_pipes[i].poll():
+                        pass
+            if spike_number == 2:
+                for i in range(spike_size, 2*spike_size):
+                    spike_par_pipes[i].send("poll")
+                for i in range(spike_size, 2*spike_size):
+                    while not spike_par_pipes[i].poll():
+                        pass
         pipes_ready = poll_pipes(par_pipes, processes_started)
         # reset number of requests
         num_requests = 0
         for i in range(0, processes_started):
             num_requests = num_requests + par_pipes[i].recv()
+            
+        if spike:
+            if spike_number == 1:
+                for i in range(0, spike_size):
+                    num_requests = num_requests + spike_par_pipes[i].recv()
+            if spike_number == 2:
+                for i in range(spike_size, 2*spike_size):
+                    num_requests = num_requests + spike_par_pipes[i].recv()
         delta_requests = num_requests - prev_num_requests
         #We've slept so poll
         sql_cpu_usages = []
