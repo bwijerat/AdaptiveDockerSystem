@@ -2,7 +2,7 @@
 
 ## Developed by:
 Carl Blacklock\
-Brian Wijeratne\
+Brian Wijeratne
 
 ## How to read excel sheets:
 Meaurements are saved in log_file_observations.csv:\
