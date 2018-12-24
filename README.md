@@ -26,4 +26,4 @@ time in seconds between estimations\
 **--polls_per_update**\
 number of estimates before the system updates parameters\
 **--log_file**\
-path to file where results are stored\
+path to file where results are stored
