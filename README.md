@@ -1,6 +1,10 @@
 # EECS6432Project
 
-## How to read excel sheets
+## Developed by:
+Carl Blacklock\
+Brian Wijeratne\
+
+## How to read excel sheets:
 Meaurements are saved in log_file_observations.csv:\
 sql_cpu_avg WW_cpu_avg sql_mem_avg web_worker_mem_avg minutes_since_start seconds_since_start
 
