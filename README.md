@@ -1,4 +1,4 @@
-#EECS6432Project
+# EECS6432Project
 
 How to read excel sheets
 Observations are written as:
